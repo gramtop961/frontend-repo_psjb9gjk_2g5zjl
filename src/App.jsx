@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import FloatingObject from './FloatingObject'
 import './index.css'
@@ -21,29 +21,51 @@ function SoftGlow({ className = '' }) {
 export default function App() {
   const canvasRef = useRef(null)
 
+  // Build a safe, encoded SVG grain data URL to avoid string literal/escape issues
+  const grainBg = useMemo(() => {
+    try {
+      const svg = `
+        <svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'>
+          <filter id='n'>
+            <feTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='2' stitchTiles='stitch'/>
+          </filter>
+          <rect width='100%' height='100%' filter='url(%23n)' opacity='0.5'/>
+        </svg>`
+      return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`
+    } catch {
+      // Fallback to a subtle solid color if anything goes wrong
+      return 'linear-gradient(to bottom, rgba(0,0,0,0.02), rgba(0,0,0,0.02))'
+    }
+  }, [])
+
   useEffect(() => {
     const c = canvasRef.current
-    if (!c) return
+    if (!c || typeof c.getContext !== 'function') return
     const ctx = c.getContext('2d')
-    const DPR = Math.min(window.devicePixelRatio || 1, 2)
+    if (!ctx) return
+    const DPR = Math.min(typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1, 2)
 
     function resize() {
-      const { width, height } = c.getBoundingClientRect()
-      c.width = width * DPR
-      c.height = height * DPR
+      const rect = c.getBoundingClientRect?.()
+      const width = rect?.width || c.offsetWidth || 0
+      const height = rect?.height || c.offsetHeight || 0
+      c.width = Math.max(1, Math.floor(width * DPR))
+      c.height = Math.max(1, Math.floor(height * DPR))
     }
 
     resize()
 
     let t = 0
-    const dots = Array.from({ length: 60 }, (_, i) => ({
+    const dots = Array.from({ length: 60 }, () => ({
       r: 40 + Math.random() * 80,
       a: Math.random() * Math.PI * 2,
       s: 0.2 + Math.random() * 0.6,
     }))
 
+    let rafId = 0
     function draw() {
-      const { width: W, height: H } = c
+      const W = c.width
+      const H = c.height
       ctx.clearRect(0, 0, W, H)
 
       // soft ambient gradient
@@ -70,14 +92,14 @@ export default function App() {
 
       ctx.restore()
       t += 0.005
-      requestAnimationFrame(draw)
+      rafId = requestAnimationFrame(draw)
     }
 
-    const id = requestAnimationFrame(draw)
+    rafId = requestAnimationFrame(draw)
     const onResize = () => resize()
     window.addEventListener('resize', onResize)
     return () => {
-      cancelAnimationFrame(id)
+      if (rafId) cancelAnimationFrame(rafId)
       window.removeEventListener('resize', onResize)
     }
   }, [])
@@ -89,10 +111,7 @@ export default function App() {
       <SoftGlow className="-bottom-40 right-0 h-[60vh] w-[50vw] bg-[radial-gradient(closest-side,rgba(199,210,254,0.5),transparent_60%)]" />
 
       {/* subtle grain */}
-      <div className="pointer-events-none absolute inset-0 opacity-[0.035]" style={{ backgroundImage: 'url("data:image/svg+xml;utf8,\
-        <svg xmlns=\'http://www.w3.org/2000/svg\' width=\'100\' height=\'100\' viewBox=\'0 0 100 100\'>\
-          <filter id=\'n\'><feTurbulence type=\'fractalNoise\' baseFrequency=\'0.65\' numOctaves=\'2\' stitchTiles=\'stitch\'/></filter>\
-          <rect width=\'100%\' height=\'100%\' filter=\'url(%23n)\' opacity=\'0.5\'/></svg>'" }} />
+      <div className="pointer-events-none absolute inset-0 opacity-[0.035]" style={{ backgroundImage: grainBg }} />
 
       {/* hero */}
       <section className="relative mx-auto max-w-7xl px-6 pt-20 pb-32 md:pt-28">
